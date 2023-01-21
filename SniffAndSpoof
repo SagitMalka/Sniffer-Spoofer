@@ -1,0 +1,131 @@
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <pcap.h>
+#include <string.h>
+#include <pcap.h>
+#include <netinet/if_ether.h>
+
+#define SOURCE_IP "10.0.0.45"
+#define BUFFER_SIZE 65535
+/** Checksum function **/
+unsigned short calculate_checksum(unsigned short *paddress, int len);
+int send_spoofed_packet(struct ip ip_struct);
+void grab_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet );
+
+int main() {
+
+    /**SETTING THE DEVICE**/
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t *handle;
+    char filter_exp[] = "ip proto 0x6";
+    struct bpf_program bpfProgram;
+    bpf_u_int32 net;
+
+
+    /**OPENING THE DEVICE FOR SNIFFING**/
+    handle = pcap_open_live("enp0s3", BUFSIZ, 1, 1000, errbuf);
+    if (handle == NULL) {
+        fprintf(stderr, "Can't open enp0s3: %s\n", errbuf);
+        return -1;
+    }
+
+    /**FILTERING TRAFFIC**/
+    if (pcap_compile(handle, &bpfProgram, filter_exp, 0, net) == -1) {
+        fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
+        return(2);
+    }
+
+    pcap_setfilter(handle, &bpfProgram);
+    if (pcap_setfilter(handle, &bpfProgram) == -1) {
+        fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
+        return(2);
+    }
+
+    /**CAPTURE PACKETS**/
+    pcap_loop(handle, -1, send_spoofed_packet(), NULL);
+
+    /** close handel and free code **/
+    pcap_close(handle);
+    pcap_freecode(&bpfProgram);
+
+
+    return (0);
+}
+
+
+/** Compute checksum (RFC 1071) **/
+unsigned short calculate_checksum(unsigned short *paddress, int len) {
+    int nleft = len;
+    int sum = 0;
+    unsigned short *w = paddress;
+    unsigned short answer = 0;
+
+    while (nleft > 1) {
+        sum += *w++;
+        nleft -= 2;
+    }
+
+    if (nleft == 1) {
+        *((unsigned char *) &answer) = *((unsigned char *) w);
+        sum += answer;
+    }
+
+    /** add back carry outs from top 16 bits to low 16 bits **/
+    sum = (sum >> 16) + (sum & 0xffff); // add hi 16 to low 16
+    sum += (sum >> 16);                 // add carry
+    answer = ~sum;                      // truncate to 16 bits
+
+    return answer;
+}
+
+
+int send_spoofed_packet(struct ip ip_struct){
+    int sockfd;
+    struct sockaddr_in address;
+    socklen_t address_length = sizeof(address);
+    char buffer[BUFFER_SIZE];
+    int length = htons(sizeof(struct icmphdr)+ sizeof(struct iphdr));
+
+
+    sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if(sockfd < 0){
+        perror("can't open socket");
+        exit(-1);
+    }
+
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(sockfd, (struct sockaddr *)&address, sizeof(address))== -1){
+        perror("error bind");
+        return 1;
+    }
+    
+
+    while (1){
+        if (buffer[0] == 8){
+            buffer[0] = 0;
+            if (sendto(sockfd, buffer, length, 0, (struct sockaddr *)&address, address_length) == -1){
+                perror("sento() failed\n");
+            }
+        }
+    }
+}
+void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet )
+{
+
+    int length = header->len;
+    struct ethhdr *etherh_eader;
+    etherh_eader = (struct ether_header *) packet;
+    if (ntohs(etherh_eader->h_proto) == 0x0800) {
+        struct iphdr *ip_header = (struct iphdr*)(packet + sizeof(struct ethhdr));
+
+
+    }
+
+}
