@@ -28,46 +28,46 @@ struct sockaddr_in source, dest;
 struct iphdr *iphdr;
 struct ethhdr *ethhdr;
 
-void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *buffer) {
+void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
 
     int size = header->len;
 
-//    struct iphdr *iphdr1 = (struct iphdr*)(buffer + sizeof(struct ethhdr));
-//    if(iphdr1->protocol == 0){
-//
-//    }
-    print_tcp_packet(buffer, size);
+    struct iphdr *iphdr1 = (struct iphdr*)(packet + sizeof(struct ethhdr));
+    if(iphdr1->protocol == 0){
 
-//    struct ether_header *etherHeader;
-//    etherHeader = (struct ether_header *) packet;
-//    if (ntohs(etherHeader->ether_type) != ETHERTYPE_IP) {
-//        return;
-//    }
-//    const u_char *ip_header;
-//    const u_char *tcp_header;
-//    const u_char *payload;
-//
-//    int ethernet_header_length = 14;
-//    int ip_header_length;
-//    int tcp_header_length;
-//    int payload_length;
-//
-//    ip_header = packet + ethernet_header_length;
-//    ip_header_length = ((*ip_header) & 0x0F);
-//    ip_header_length = ip_header_length * 4;
-//
-//    u_char protocol = *(ip_header + 9);
-//    if (protocol != IPPROTO_TCP) {
-//        return;
-//    }
-//    tcp_header = packet + ethernet_header_length + ip_header_length;
-//    tcp_header_length = ((*tcp_header + 12) & 0xF0) >> 4;
-//    tcp_header_length = tcp_header_length * 4;
-//
-//    int total_headers_size = ethernet_header_length + ip_header_length + tcp_header_length;
-//
-//    payload_length = header->caplen - total_headers_size;
-//    payload = packet + total_headers_size;
+    }
+    print_tcp_packet(packet, size);
+
+    struct ether_header *etherHeader;
+    etherHeader = (struct ether_header *) packet;
+    if (ntohs(etherHeader->ether_type) != ETHERTYPE_IP) {
+        return;
+    }
+    const u_char *ip_header;
+    const u_char *tcp_header;
+    const u_char *payload;
+
+    int ethernet_header_length = 14;
+    int ip_header_length;
+    int tcp_header_length;
+    int payload_length;
+
+    ip_header = packet + ethernet_header_length;
+    ip_header_length = ((*ip_header) & 0x0F);
+    ip_header_length = ip_header_length * 4;
+
+    u_char protocol = *(ip_header + 9);
+    if (protocol != IPPROTO_TCP) {
+        return;
+    }
+    tcp_header = packet + ethernet_header_length + ip_header_length;
+    tcp_header_length = ((*tcp_header + 12) & 0xF0) >> 4;
+    tcp_header_length = tcp_header_length * 4;
+
+    int total_headers_size = ethernet_header_length + ip_header_length + tcp_header_length;
+
+    payload_length = header->caplen - total_headers_size;
+    payload = packet + total_headers_size;
 
 
 
@@ -75,22 +75,16 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 }
 
 
+//void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
+//{
+//    int i;
 //
-//void print_tcp_packet(const u_char *Buffer, int size) {
-//
-//
-//    struct tcphdr *tcphdr = (struct tcphdr *) (Buffer + sizeof(struct ethhdr));
-//
-//    fprintf(logfile, "\n\n TCP Packet\n");
-//
-//
-//    fprintf(logfile, "source_port: %u\n", ntohs(tcphdr->source));
-//    fprintf(logfile, "dest_port: %u\n", ntohs(tcphdr->dest));
-//    fprintf(logfile, "timestamp: \n");
-//    fprintf(logfile, "toatl_length: %d DWORDS or %d BYTES\n", (unsigned int) tcphdr->doff,
-//            (unsigned int) tcphdr->doff * 4);
+//    fprintf(logfile,"Packet of length %d:\n", header->len);
+//    for (i = 0; i < header->len; i++) {
+//        fprintf(logfile, "%02x ", packet[i]);
+//    }
+//    fprintf(logfile, "\n");
 //}
-
 
 int main() {
     printf("sup\n");
@@ -99,17 +93,19 @@ int main() {
 //    char *dev = NULL;
 
     char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_t *handler;
+    pcap_t *handle;
 
-    const u_char *packet;
-    char filter_exp[] = "ip host 127.0.0.1";
+
+    char filter_exp[] = "ip proto 0x6";
+
     struct bpf_program bpfProgram;
     bpf_u_int32 net;
+    struct bpf_program fp;
 
-//    pcap_findalldevs(&dev, errbuf);
+
     /**OPENING THE DEVICE FOR SNIFFING**/
-    handler = pcap_open_live("enp0s3", BUFSIZ, 1, 1000, errbuf);
-    if (handler == NULL) {
+    handle = pcap_open_live("enp0s3", BUFSIZ, 1, 1000, errbuf);
+    if (handle == NULL) {
 //        printf("error: \"%s\"\n", errbuf);
         fprintf(stderr, "Can't open enp0s3: %s\n", errbuf);
         return -1;
@@ -123,22 +119,22 @@ int main() {
     }
     printf("1\n");
     /**FILTERING TRAFFIC**/
-    int pcap_compile_return_val =  pcap_compile(handler, &bpfProgram, filter_exp, 0, net);
-    if(pcap_compile_return_val != 0){
-        printf("Can't run pcap compile: %s\n",pcap_geterr(handler));
-        fprintf(stderr, "errbuf: %s\n", errbuf);
-        printf( "Can't run pcap compile: %d\n", pcap_compile_return_val);
-        return -1;
+    if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
+        fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
+        return(2);
     }
 
-    pcap_setfilter(handler, &bpfProgram);
-
+    pcap_setfilter(handle, &bpfProgram);
+    if (pcap_setfilter(handle, &fp) == -1) {
+        fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
+        return(2);
+    }
 
     /**CAPTURE PACKETS**/
-    pcap_loop(handler, -1, packet_handler, NULL);
+    pcap_loop(handle, -1, packet_handler, NULL);
 
     pcap_freecode(&bpfProgram);
-    pcap_close(handler);
+    pcap_close(handle);
     fclose(logfile);
     return (0);
 }
@@ -155,7 +151,7 @@ void print_ip_packet(const u_char *buffer, int size) {
     dest.sin_addr.s_addr = iphdr1->daddr;
 
     fprintf(logfile, " source ip: %s", inet_ntoa(source.sin_addr));
-    fprintf(logfile, " dest ip: %s", inet_ntoa(dest.sin_addr));
+    fprintf(logfile, ", dest ip: %s\n", inet_ntoa(dest.sin_addr));
 }
 
 void print_tcp_packet(const u_char *buffer, int size) {
@@ -172,8 +168,9 @@ void print_tcp_packet(const u_char *buffer, int size) {
     print_ip_packet(buffer, size);
 
     fprintf(logfile, " source port: %u", ntohs(tcphdr->source));
-    fprintf(logfile, " dest port: %u", ntohs(tcphdr->dest));
-//    fprintf(logfile, " timestamp: ")
+    fprintf(logfile, " dest port: %u\n", ntohs(tcphdr->dest));
+    fprintf(logfile, " timestamp: ", ntohl(tcphdr->th_seq));
+    
 
 
     fprintf(logfile , "IP Header\n");
