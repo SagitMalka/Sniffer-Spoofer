@@ -7,14 +7,8 @@
 #include <sys/socket.h>
 
 #define SOURCE_IP "10.0.0.45"
-// IPv4 header len without options
-#define IP4_HDRLEN 20
 
-// ICMP header len for echo req
-#define ICMP_HDRLEN 8
-
-// Checksum algo
-unsigned short calculate_checksum(unsigned short *paddress, int len);
+unsigned short calculate_checksum(unsigned short *buffer, int length);
 
 
 int main() {
@@ -29,30 +23,31 @@ int main() {
 
     sockaddrIn.sin_family = AF_INET;
 
-    struct iphdr *ip_header = (struct iphdr *)buffer;
-    ip_header->version = 4;
-    ip_header->ihl = 5;
-    ip_header->ttl = 20;
-    ip_header->saddr = inet_addr(SOURCE_IP);
-    ip_header->protocol = IPPROTO_ICMP;
-    ip_header->tot_len = htons(sizeof(struct iphdr)+ sizeof(struct icmphdr));
+    struct ip *pIp = (struct ip *)buffer;
+    pIp->ip_v = 4;
+    pIp->ip_hl = 5;
+    pIp->ip_ttl = 20;
+    pIp->ip_src.s_addr = inet_addr(SOURCE_IP);
+//    ip_header->ip_dst.s_addr = inet_addr("10.0.2.5");
+    pIp->ip_p = IPPROTO_ICMP;
+    pIp->ip_len = htons(sizeof(struct iphdr) + sizeof(struct icmphdr));
 
-    struct icmphdr *icmp_header = (struct icmphdr *)(buffer + sizeof(ip_header));
-    icmp_header->type = 8;
+    struct icmp *pIcmp = (struct icmp *)(buffer + sizeof(struct ip));
+    pIcmp->icmp_type = 8;
+    pIcmp->icmp_cksum = 0;
+    pIcmp->icmp_cksum = calculate_checksum((unsigned short *)pIcmp, sizeof(struct icmp));
 
-    icmp_header->checksum =0;
-
-    if(sendto(fd, &buffer, ip_header->tot_len, 0, (struct sockaddr *)&sockaddrIn, sizeof (sockaddrIn)) < 0){
+    if(sendto(fd, &buffer, pIp->ip_len, 0, (struct sockaddr *)&sockaddrIn, sizeof (sockaddrIn)) < 0){
         perror("sendto faild \n");
         exit(-1);
     }
 }
 
-// Compute checksum (RFC 1071).
-unsigned short calculate_checksum(unsigned short *paddress, int len) {
-    int nleft = len;
+/** Compute checksum (RFC 1071) **/
+unsigned short calculate_checksum(unsigned short *buffer, int length) {
+    int nleft = length;
     int sum = 0;
-    unsigned short *w = paddress;
+    unsigned short *w = buffer;
     unsigned short answer = 0;
 
     while (nleft > 1) {
@@ -65,7 +60,7 @@ unsigned short calculate_checksum(unsigned short *paddress, int len) {
         sum += answer;
     }
 
-    // add back carry outs from top 16 bits to low 16 bits
+    /** add back carry outs from top 16 bits to low 16 bits **/
     sum = (sum >> 16) + (sum & 0xffff); // add hi 16 to low 16
     sum += (sum >> 16);                 // add carry
     answer = ~sum;                      // truncate to 16 bits
