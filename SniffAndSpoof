@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
@@ -7,15 +6,15 @@
 #include <sys/socket.h>
 #include <pcap.h>
 #include <string.h>
-#include <pcap.h>
 #include <netinet/if_ether.h>
 
 #define SOURCE_IP "10.0.0.45"
-#define BUFFER_SIZE 65535
-/** Checksum function **/
-unsigned short calculate_checksum(unsigned short *paddress, int len);
-int send_spoofed_packet(struct ip ip_struct);
-void grab_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet );
+#define BUFFER_SIZE 1500
+
+/** Declaring function **/
+unsigned short calculate_checksum(unsigned short *buffer, int len);
+int send_spoofed_packet(struct in_addr source, struct in_addr destination);
+void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet );
 
 int main() {
 
@@ -47,7 +46,7 @@ int main() {
     }
 
     /**CAPTURE PACKETS**/
-    pcap_loop(handle, -1, send_spoofed_packet(), NULL);
+    pcap_loop(handle, -1, got_packet, NULL);
 
     /** close handel and free code **/
     pcap_close(handle);
@@ -59,10 +58,10 @@ int main() {
 
 
 /** Compute checksum (RFC 1071) **/
-unsigned short calculate_checksum(unsigned short *paddress, int len) {
-    int nleft = len;
+unsigned short calculate_checksum(unsigned short *buffer, int length) {
+    int nleft = length;
     int sum = 0;
-    unsigned short *w = paddress;
+    unsigned short *w = buffer;
     unsigned short answer = 0;
 
     while (nleft > 1) {
@@ -84,48 +83,46 @@ unsigned short calculate_checksum(unsigned short *paddress, int len) {
 }
 
 
-int send_spoofed_packet(struct ip ip_struct){
-    int sockfd;
-    struct sockaddr_in address;
-    socklen_t address_length = sizeof(address);
-    char buffer[BUFFER_SIZE];
-    int length = htons(sizeof(struct icmphdr)+ sizeof(struct iphdr));
-
-
-    sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if(sockfd < 0){
+int send_spoofed_packet(struct in_addr source, struct in_addr destination){
+    int fd;
+    struct sockaddr_in sockaddrIn;
+    char buffer[1500];
+    fd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+    if(socket < 0){
         perror("can't open socket");
         exit(-1);
     }
 
-    memset(&address, 0, sizeof(address));
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (bind(sockfd, (struct sockaddr *)&address, sizeof(address))== -1){
-        perror("error bind");
-        return 1;
-    }
-    
+    sockaddrIn.sin_family = AF_INET;
+    sockaddrIn.sin_addr =destination;
 
-    while (1){
-        if (buffer[0] == 8){
-            buffer[0] = 0;
-            if (sendto(sockfd, buffer, length, 0, (struct sockaddr *)&address, address_length) == -1){
-                perror("sento() failed\n");
-            }
-        }
+    struct ip *pIp = (struct ip *)buffer;
+    pIp->ip_v = 4;
+    pIp->ip_hl = 5;
+    pIp->ip_ttl = 20;
+    pIp->ip_src = destination;
+    pIp->ip_dst = source;
+    pIp->ip_p = IPPROTO_ICMP;
+    pIp->ip_len = htons(sizeof(struct ip) + sizeof(struct icmp));
+
+    struct icmp *pIcmp = (struct icmp *)(buffer + sizeof(struct ip));
+    pIcmp->icmp_type = 0;
+    pIcmp->icmp_cksum =8;
+    pIcmp->icmp_cksum = calculate_checksum((unsigned short *)pIcmp, sizeof(struct icmp));
+
+    if(sendto(fd, buffer, ntohs(pIp->ip_len), 0, (struct sockaddr *)&sockaddrIn, sizeof (sockaddrIn)) < 0){
+        perror("sendto faild \n");
+        exit(-1);
     }
 }
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet )
 {
+    struct ethhdr *ether_header = (struct ethhdr *) packet;
 
-    int length = header->len;
-    struct ethhdr *etherh_eader;
-    etherh_eader = (struct ether_header *) packet;
-    if (ntohs(etherh_eader->h_proto) == 0x0800) {
-        struct iphdr *ip_header = (struct iphdr*)(packet + sizeof(struct ethhdr));
-
-
+    if (ntohs(ether_header->h_proto) == 0x0800) {
+        struct ip *pIp = (struct ip *)(packet + sizeof(struct ethhdr));
+        if (pIp->ip_p == IPPROTO_ICMP){
+            send_spoofed_packet(pIp->ip_src, pIp->ip_dst);
+        }
     }
-
 }
