@@ -1,11 +1,13 @@
-all: sniffer spoofer gateway
+all: sniffer spoofer gateway sniffspoof
 
 sniffer: Sniffer.c
-	gcc $(CFLAGS) Sniffer.c -o sniffer.o -lpcap
+	gcc Sniffer.c -o sniffer -lpcap
 spoofer: Spoofer.c
-	gcc -c Spoofer.c -o spoofer.o
+	gcc Spoofer.c -o spoofer
 gateway: Gateway.c
-	gcc -c Gateway.c -o gateway.o
+	gcc Gateway.c -o gateway
+sniffspoof: SniffAndSpoof.c
+	gcc SniffAndSpoof.c -o sniffspoof -lpcap
 	
 clean:
-	rm -f *.o sniffer log.txt spoofer gateway
+	rm -f *.o sniffer 209294768_206477788.txt spoofer gateway
